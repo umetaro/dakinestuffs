@@ -1,0 +1,59 @@
+{
+  "Comment": "Update etl proxy records in public zone",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "ENV-etl-001.company.com",
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [ { "Value": "NEWPUBLICIP" } ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "ENV-etl-002.company.com",
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [ { "Value": "NEWPUBLICIP" } ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "ENV-etl-003.company.com",
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [ { "Value": "NEWPUBLICIP" } ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "ENV-etl-004.company.com",
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [ { "Value": "NEWPUBLICIP" } ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "ENV-etl-005.company.com",
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [ { "Value": "NEWPUBLICIP" } ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "ENV-etl-006.company.com",
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [ { "Value": "NEWPUBLICIP" } ]
+      }
+    }
+  ]
+}

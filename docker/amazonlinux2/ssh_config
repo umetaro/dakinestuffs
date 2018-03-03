@@ -1,0 +1,15 @@
+Host *.ec2.internal
+  CheckHostIP no
+  ServerAliveCountMax 120
+  ServerAliveInterval 30
+  StrictHostKeyChecking no
+Host ip-10-*
+  CheckHostIP no
+  ServerAliveCountMax 120
+  ServerAliveInterval 30
+  StrictHostKeyChecking no
+Host 10.*
+  CheckHostIP no
+  ServerAliveCountMax 120
+  ServerAliveInterval 30
+  StrictHostKeyChecking no

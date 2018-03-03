@@ -1,0 +1,296 @@
+#!/usr/bin/env bash
+
+##### DEBUG - support for debug
+[ "${DEBUG}" == "true" ] && set -x || set +x
+
+#
+# vars
+#
+version="0.0.13"
+options=':Bc:d:e:Eg:G:i:I:jk:LMn:o:p:P:r:R:s:St:T:u:v:Vw:Wx:X'
+cyan="$(tput setaf 6)"
+red="$(tput setaf 1)"
+reset="$(tput sgr0)"
+bold="$(tput bold)"
+
+#
+# usage
+#
+usage () {
+  cat <<USAGE
+version: ${version}
+usage:
+         ${0} [-dgGnp ] [ instance-name ]
+         ${0} [-ci ]    [ instance-id ]
+         ${0} [-e ]     [ cluster-id ]
+         ${0} [-g ]     [ security-group-id || security-group-name ]
+         ${0} [-I ]     [ elastic-network-interface-id ]
+         ${0} [-k ]     [ key-name ]
+         ${0} [-o ]     [ table | json ] [ other command option and/or value ]
+         ${0} [-pP]     [ IPaddress ]
+         ${0} [-rv]     [ vpc-id ]
+         ${0} [-st]     [ stack-name ]
+         ${0} [-Tu]     [ cloudformation template filename ]
+         ${0} [-w]      [ parameter store hierarchy name (i.e. "/mappings/stage/vpc" ) ]
+         ${0} [-x]      [ pcx-id ]
+         ${0} [-BELMSVWX]  (no option arguments required)
+
+          [-B ]     list all ${cyan}Redshift${reset} clusters
+          [-c ]     display instance ${cyan}console${reset}
+          [-d ]     list ${cyan}disk(s) / volume(s)${reset} attached to instance(s)
+          [-e ]     list all instances in ${cyan}EMR${reset} cluster
+          [-E ]     list all active ${cyan}EMR${reset} clusters
+          [-g ]     display information about a specific ${cyan}security group${reset}
+          [-G ]     search ${cyan}security group${reset}(s) associated with instance name pattern
+                    ( e.g. ${0} -G hostnameFragment* )
+          [-i ]     search by ${cyan}instance-id${reset}
+          [-I ]     search by ${cyan}network-interface-id${reset}
+          [-j ]     display aws ${cyan}version${reset}
+          [-k ]     search for instance(s) using specified ${cyan}key${reset}
+          [-L ]     list all ${cyan}Elastic Load Balancers${reset}
+          [-M ]     list all ${cyan}RDS${reset} instances
+          [-n ]     search ${cyan}instance-names${reset}
+          [-o ]     must be first listed option.  specify ${cyan}output type${reset}.  default is "text."
+          [-p ]     search by ${cyan}private IP address${reset}
+          [-P ]     search by ${cyan}public IP address${reset}
+          [-r ]     list all VPC ${cyan}routes${reset}
+          [-s ]     CloudFormation ${cyan}stack${reset} outputs of stacks matching argument
+          [-S ]     list all CloudFormation ${cyan}stacks${reset}
+          [-t ]     fetch currently running ${cyan}template${reset} and convert to yaml
+          [-T ]     validate file ${cyan}template${reset} in PWD
+          [-u ]     list CloudFormation stack parameters
+          [-v ]     search by ${cyan}VPC${reset} name
+          [-V ]     list all ${cyan}VPCs${reset}
+          [-w ]     list specified hierarchy's Parameter Store name(s), description(s), and key(s)
+          [-W ]     list all SSM Parameter Store names, descriptions, and keys
+          [-x ]     display info for VPC ${cyan}PCX ID${reset}
+          [-X ]     search by VPC ${cyan}PCX ID${reset}
+USAGE
+  }
+
+#
+# errors
+#
+if (! getopts ${options} opt); then
+  usage
+  exit ${E_OPTERROR}
+fi
+
+# save aws cli output type and set current session default to "text"
+originaloutput="$(aws configure get output)"
+aws configure set output text
+
+grepoptions="$(env | grep --color=never GREP_OPTIONS)"
+export GREP_OPTIONS="--color=never"
+
+OPTIND=1
+while getopts ${options} opt; do
+  if [[ $# -gt 3 ]] && [[ "${OPTARG}" =~ ^-[a-zA-Z] ]]; then
+    echo "${bold}${red}ERROR: only one argument allowed unless second is output type${reset}"
+    usage
+    exit 1
+  fi
+
+export STACK_FILTER="CREATE_IN_PROGRESS CREATE_COMPLETE ROLLBACK_IN_PROGRESS ROLLBACK_FAILED ROLLBACK_COMPLETE DELETE_IN_PROGRESS DELETE_FAILED UPDATE_IN_PROGRESS UPDATE_COMPLETE_CLEANUP_IN_PROGRESS UPDATE_COMPLETE UPDATE_ROLLBACK_IN_PROGRESS UPDATE_ROLLBACK_FAILED UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS UPDATE_ROLLBACK_COMPLETE"
+
+  case ${opt} in
+    B)
+      aws redshift describe-clusters \
+        --query 'Clusters[].{_ENDPOINT:Endpoint.Address,USER:MasterUsername,_AZ:AvailabilityZone,NAME:ClusterIdentifier,STATUS:ClusterStatus,_DBNAME:DBName}'
+      ;;
+    c)
+      aws ec2 get-console-output --instance-id "${OPTARG}"
+      ;;
+    d)
+      for instance in $(aws ec2 describe-instances --filters Name=tag:Name,Values="${OPTARG}" \
+        --query Reservations[].Instances[].InstanceId |grep 'i-' | cut -d\" -f 2); do
+        aws ec2 describe-volumes --filters Name=attachment.instance-id,Values="${instance}" \
+          --query 'Volumes[*].{ID:VolumeId,SIZE:Size,INSTANCE:Attachments[0].InstanceId,DEVICE:Attachments[0].Device}';
+      done
+      ;;
+    e)
+      echo "${bold}MASTER${reset}${cyan}"
+      aws emr list-instances --cluster-id "${OPTARG}" --instance-group-types MASTER \
+        --query 'Instances[].{ID:Ec2InstanceId,PUBLIC:PublicIpAddress,PRIVATE:PrivateIpAddress}'
+      echo "${reset}${bold}CORE${reset}${cyan}"
+      aws emr list-instances --cluster-id "${OPTARG}" --instance-group-types CORE \
+        --query 'Instances[].{ID:Ec2InstanceId,PUBLIC:PublicIpAddress,PRIVATE:PrivateIpAddress}'
+      echo "${reset}${bold}TASK${reset}${cyan}"
+      aws emr list-instances --cluster-id "${OPTARG}" --instance-group-types TASK \
+        --query 'Instances[].{ID:Ec2InstanceId,PUBLIC:PublicIpAddress,PRIVATE:PrivateIpAddress}'
+      echo "${reset}"
+      ;;
+    E)
+      declare -a table
+      table+=( "$(echo "NAME CLUSTER-ID MASTER CORE")" )
+      while IFS='' read i; do
+        read name id <<< ${i}
+        read mip cip <<< $(aws emr list-instances --cluster-id ${id} --instance-group-types MASTER CORE --query 'Instances[].PrivateIpAddress' --output text)
+        table+=( "$( echo "${name} ${id} ${mip} ${cip}" )" )
+      done <<< "$(aws emr list-clusters --active --query 'Clusters[*].[Name,Id]' --output text)"
+      printf '%s\n' "${table[@]}" | column -t | sort
+      ;;
+    g)
+      if [[ "${OPTARG}" =~ "sg-" ]]; then
+        echo "${cyan}Instances referencing the security group:${reset}"
+        aws ec2 describe-instances --filters Name=instance.group-id,Values="${OPTARG}" \
+          --query 'Reservations[].Instances[].{PUBLIC:PublicIpAddress,PRIVATE:PrivateIpAddress,ID:InstanceId,TYPE:InstanceType,KEY:KeyName,STATE:State.Name,VPC:VpcId,ZONE:Placement.AvailabilityZone,NAME:Tags[?Key==`Name`] | [0].Value}' \
+          | column -t | sort -k3
+        echo
+        echo "${cyan}Peered VPCs Referencing This Security Group${reset}"
+        aws ec2 describe-security-group-references --group-id ${OPTARG} \
+          --query 'SecurityGroupReferenceSet[].[ReferencingVpcId,VpcPeeringConnectionId]'
+        echo
+        echo "${cyan}Security Group Details:${reset}"
+        aws ec2 describe-security-groups --group-ids "${OPTARG}" \
+          --query 'SecurityGroups[].[GroupId,GroupName,IpPermissions[*].[FromPort,IpProtocol,ToPort,IpRanges[*],UserIdGroupPairs[*].GroupId]]' \
+          --output text \
+          | sed 's/\(^[0-9]\{1,3\}\.\)/  \1/' | sed 's/^sg-/  sg-/'
+      else
+        echo "${cyan}SGs and Ingress Rules:${reset}"
+        aws ec2 describe-security-groups --filters Name=group-name,Values="*${OPTARG}*" \
+          --query 'SecurityGroups[*].[GroupId,GroupName,IpPermissions[*].[FromPort,IpProtocol,ToPort,IpRanges[*],UserIdGroupPairs[*].GroupId]]' \
+          --output text \
+          | sed 's/\(^[0-9]\{1,3\}\.\)/  \1/' | sed 's/^sg-/  sg-/'
+        echo
+        echo "${cyan}Instances referencing the security group:${reset}"
+        aws ec2 describe-instances --filters Name=instance.group-name,Values=\"*"${OPTARG}"*\" \
+          --query 'Reservations[].Instances[].{PUBLIC:PublicIpAddress,PRIVATE:PrivateIpAddress,ID:InstanceId,TYPE:InstanceType,KEY:KeyName,STATE:State.Name,VPC:VpcId,ZONE:Placement.AvailabilityZone,NAME:Tags[?Key==`Name`] | [0].Value}' \
+          | column -t | sort -k3
+      fi
+      ;;
+    G)
+      echo "${cyan}SGs and Ingress Rules:${reset}"
+      for SG in $(aws ec2 describe-instances --filters Name=tag:Name,Values=\"*"${OPTARG}"*\" \
+        --query 'Reservations[].Instances[].SecurityGroups[].GroupId'); do
+        NAME=$(aws ec2 describe-security-groups --group-ids "${SG}" --query 'SecurityGroups[*].{Name:GroupName}')
+        echo "${cyan}${SG}    ${bold}${NAME}${reset}"
+        aws ec2 describe-security-groups --filters Name=group-id,Values="${SG}" \
+          --query 'SecurityGroups[*].IpPermissions[*].[FromPort,IpProtocol,ToPort,IpRanges[*],UserIdGroupPairs[*].GroupId]' \
+          --output text \
+          | sed 's/\(^[0-9]\{1,3\}\.\)/  \1/' | sed 's/^sg-/  sg-/'
+        echo
+      done
+      ;;
+    i)
+      aws ec2 describe-instances --filters Name=instance-id,Values="${OPTARG}" \
+        --query 'Reservations[*].Instances[*].{PUBLIC:PublicIpAddress,PRIVATE:PrivateIpAddress,ID:InstanceId,TYPE:InstanceType,KEY:KeyName,STATE:State.Name,VPC:VpcId,ZONE:Placement.AvailabilityZone,NAME:Tags[?Key==`Name`] | [0].Value}' \
+      && \
+      aws ec2 describe-instances --filters Name=instance-id,Values="${OPTARG}" \
+        --query 'Reservations[*].Instances[*].SecurityGroups[*].[GroupName,GroupId]'
+      ;;
+    I)
+      aws ec2 describe-network-interfaces --filters Name=network-interface-id,Values="${OPTARG}" --output table
+      ;;
+    j)
+      ( fortune bofh-excuses | cowsay ) && aws --version || echo "not a snark"
+      ;;
+    k)
+      aws ec2 describe-instances --filters Name=key-name,Values="${OPTARG}" \
+        --query 'Reservations[*].Instances[*].{ID:InstanceId,NAME:Tags[?Key==`Name`] | [0].Value}'
+      ;;
+    L)
+      aws elb describe-load-balancers --query 'LoadBalancerDescriptions[].[LoadBalancerName,DNSName,Scheme]'
+      ;;
+    M)
+      aws rds describe-db-instances --query 'DBInstances[*].{ENDPOINT:Endpoint.Address,PORT:Endpoint.Port,VPC:DBSubnetGroup.VpcId}'
+      ;;
+    n)
+      aws ec2 describe-instances --filters Name=tag:Name,Values="*${OPTARG}*" \
+        --query 'Reservations[*].Instances[*].{PUBLIC:PublicIpAddress,PRIVATE:PrivateIpAddress,ID:InstanceId,TYPE:InstanceType,KEY:KeyName,STATE:State.Name,VPC:VpcId,ZONE:Placement.AvailabilityZone,ID:InstanceId,NAME:Tags[?Key==`Name`] | [0].Value}'
+      ;;
+    o)
+      aws configure set output "${OPTARG}"
+      export oldinput="${OPTARG}"
+      ;;
+    p)
+      aws ec2 describe-network-interfaces --filters Name=private-ip-address,Values=${OPTARG}  --query 'NetworkInterfaces[].{PUBLIC:Association.PublicIp,AZ:AvailabilityZone,PRIVATE:PrivateIpAddress,INSTANCEID:Attachment.InstanceId,DESC:Description}'
+      ;;
+    P)
+      aws ec2 describe-network-interfaces --filters Name=association.public-ip,Values=${OPTARG}  --query 'NetworkInterfaces[].{PUBLIC:Association.PublicIp,AZ:AvailabilityZone,PRIVATE:PrivateIpAddress,INSTANCEID:Attachment.InstanceId,DESC:Description}'
+      ;;
+    r)
+      for rtable in $(aws ec2 describe-route-tables --filters Name=vpc-id,Values="${OPTARG}" --query RouteTables[].RouteTableId); do
+        NAME=$(aws ec2 describe-route-tables --filters Name=route-table-id,Values="${rtable}" --query 'RouteTables[].Tags[?Key==`Name`]' | cut -f2)
+        echo "${bold}${NAME}${reset}"
+        aws ec2 describe-route-tables --filters Name=route-table-id,Values="${rtable}" \
+          --query 'RouteTables[].Routes[].{CIDR:DestinationCidrBlock,GW:GatewayId,NAT:InstanceId,PCX:VpcPeeringConnectionId}'
+      done
+      ;;
+    s)
+      results=$(aws cloudformation list-stacks --stack-status-filter ${STACK_FILTER} --query 'StackSummaries[].{NAME:StackName}' | grep ${OPTARG})
+      for stackname in ${results}; do
+        echo "${cyan}${stackname}${reset}"
+        aws cloudformation describe-stacks --stack-name ${stackname} --query 'Stacks[].Outputs[].[OutputKey,OutputValue]'
+        echo
+      done
+      ;;
+    S)
+      aws cloudformation list-stacks --stack-status-filter ${STACK_FILTER} --query 'StackSummaries[].{NAME:StackName,STATUS:StackStatus,CREATED:CreationTime}' | column -t | sort
+      ;;
+    t)
+      aws cloudformation get-template --stack-name ${OPTARG} --template-stage Processed --output json
+      ;;
+    T)
+      aws cloudformation validate-template --template-body "file://${OPTARG}"
+      ;;
+    u)
+      aws cloudformation validate-template --template-body "file://${OPTARG}" --output json | jq -r '.Parameters[] | [.ParameterKey, .DefaultValue] | @tsv' | column -t
+      ;;
+    v)
+      echo "${cyan}Instances:${reset}"
+      aws ec2 describe-instances --filters Name=vpc-id,Values="${OPTARG}" \
+        --query 'Reservations[*].Instances[*].{PUBLIC:PublicIpAddress,PRIVATE:PrivateIpAddress,ID:InstanceId,TYPE:InstanceType,STATE:State.Name,SUBNET:SubnetId,ID:InstanceId,NAME:Tags[?Key==`Name`] | [0].Value}'
+      echo "${cyan}Subnets:${reset}"
+      aws ec2 describe-subnets --filter Name=vpc-id,Values="${OPTARG}" --query 'Subnets[].{ID:SubnetId,AZ:AvailabilityZone,CIDR:CidrBlock,NAME:Tags[?Key==`Name`] | [0].Value}' | sort
+      echo "${cyan}Routing:${reset}"
+      for rtable in $(aws ec2 describe-route-tables --filters Name=vpc-id,Values="${OPTARG}" --query RouteTables[].RouteTableId); do
+        NAME=$(aws ec2 describe-route-tables --filters Name=route-table-id,Values="${rtable}" --query 'RouteTables[].Tags[?Key==`Name`]' | cut -f2)
+        echo "${bold}${NAME}${reset}"
+        aws ec2 describe-route-tables --filters Name=route-table-id,Values="${rtable}" \
+          --query 'RouteTables[].Routes[].{CIDR:DestinationCidrBlock,GW:GatewayId,NAT:InstanceId,NATGW:NatGatewayId,PCX:VpcPeeringConnectionId}'
+      done
+      echo "${cyan}Peering Connections Initiated:${reset}"
+      aws ec2 describe-vpc-peering-connections --filters Name=requester-vpc-info.vpc-id,Values=${OPTARG} \
+        --query 'VpcPeeringConnections[].{FROM:RequesterVpcInfo.CidrBlock,FROM_ID:RequesterVpcInfo.VpcId,TO:AccepterVpcInfo.CidrBlock,TO_ID:AccepterVpcInfo.VpcId,NAME:Tags[?Key==`Name`] | [0].Value}'
+      echo "${cyan}VPC ID:${reset} ${OPTARG}"
+      ;;
+    V)
+      aws ec2 describe-vpcs --query 'Vpcs[].{CIDR:CidrBlock,ID:VpcId,NAME:Tags[?Key==`Name`] | [0].Value}'
+      ;;
+    w)
+      aws ssm describe-parameters --filters Key=Name,Values="${OPTARG}" --query 'Parameters[].[Description,Name,Type]' --output table
+      ;;
+    W)
+      DEFAULTPATH="/"
+      aws ssm describe-parameters --filters Key=Name,Values="${DEFAULTPATH}" --query 'Parameters[].[Description,Name,Type]' --output table
+      ;;
+    x)
+      aws ec2 describe-vpc-peering-connections --vpc-peering-connection-ids "${OPTARG}" --query 'VpcPeeringConnections[*].{PCX:VpcPeeringConnectionId,A_VPC:AccepterVpcInfo.VpcId,A_CIDR:AccepterVpcInfo.CidrBlock,R_VPC:RequesterVpcInfo.VpcId,R_CIDR:RequesterVpcInfo.CidrBlock,AA_NAME:Tags[?Key==`Name`] | [0].Value}'
+      ;;
+    X)
+      aws ec2 describe-vpc-peering-connections --query 'VpcPeeringConnections[*].{PCX:VpcPeeringConnectionId,A_VPC:AccepterVpcInfo.VpcId,A_CIDR:AccepterVpcInfo.CidrBlock,R_VPC:RequesterVpcInfo.VpcId,R_CIDR:RequesterVpcInfo.CidrBlock,AA_NAME:Tags[?Key==`Name`] | [0].Value}'
+      ;;
+
+    \?)
+      echo "${bold}${red}ERROR: illegal option: -${OPTARG}${reset}"
+      usage
+      exit 1
+      ;;
+    :)
+      echo "${bold}${red}ERROR: missing argument${reset}"
+      usage
+      exit 1
+      ;;
+    *)
+      echo "${bold}${red}ERROR: WTFBBQ?!? -${OPTARG}${reset}"
+      usage
+      exit 1
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+# restore settings
+aws configure set output "${originaloutput}"
+export GREP_OPTIONS=${grepoptions}
