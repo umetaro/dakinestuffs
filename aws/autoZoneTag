@@ -1,0 +1,53 @@
+from __future__ import print_function
+import json
+import boto3
+import logging
+import time
+import datetime
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+  ids = []
+
+  try:
+    region = event['region']
+    detail = event['detail']
+    eventname = detail['eventName']
+
+    logger.info('principalId: ' + str(principal))
+    logger.info('region: ' + str(region))
+    logger.info('eventName: ' + str(eventname))
+    logger.info('detail: ' + str(detail))
+
+    if not detail['responseElements']:
+      logger.warning('Not responseElements found')
+      if detail['errorCode']:
+        logger.error('errorCode: ' + detail['errorCode'])
+      if detail['errorMessage']:
+        logger.error('errorMessage: ' + detail['errorMessage'])
+      return False
+
+    ec2 = boto3.resource('ec2')
+
+    if eventname == 'RunInstances':
+      items = detail['responseElements']['instancesSet']['items']
+      for item in items:
+        ids.append(item['instanceId'])
+      logger.info(ids)
+      logger.info('number of instances: ' + str(len(ids)))
+
+      base = ec2.instances.filter(InstanceIds=ids)
+
+    if ids:
+      for resourceid in ids:
+        print('Tagging resource ' + resourceid)
+      ec2.create_tags(Resources=ids, Tags=[{'Key': 'Zone', 'Value': 'INSERT_DOMAIN_HERE.com.'}])
+
+    logger.info(' Remaining time (ms): ' + str(context.get_remaining_time_in_millis()) + '\\n')
+    return True
+  except Exception as e:
+    logger.error('Something went wrong: ' + str(e))
+    return False
+
