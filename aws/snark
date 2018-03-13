@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -e | --emr )
       widths="%-30s %-20s %-20s %-20s\n"
-      printf "${widths}" "NAME" "CLUSTER-ID" "MASTER" "CORE"
+      printf "${widths}" "NAME" "CLUSTER-ID" "CORE" "MASTER"
       while IFS='' read -r i; do
         read -r name id <<< $i
         read -r mip cip <<< $(aws emr list-instances \
