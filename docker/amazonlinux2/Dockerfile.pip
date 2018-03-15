@@ -1,6 +1,6 @@
 FROM 502718739766.dkr.ecr.us-east-1.amazonaws.com/amazonlinux2:agent
 
-RUN yum -y install postgresql rsync \
+RUN yum -y install python2-pip zip \
   && yum clean all \
   && rm -rf /var/cache/yum
 

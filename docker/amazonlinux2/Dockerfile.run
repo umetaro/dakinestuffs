@@ -1,9 +1,5 @@
 FROM 502718739766.dkr.ecr.us-east-1.amazonaws.com/amazonlinux2:agent
 
-RUN yum -y install postgresql rsync \
-  && yum clean all \
-  && rm -rf /var/cache/yum
-
 USER jenkins
 
 ENTRYPOINT ["jenkins-slave", "-workDir", "/home/jenkins/workspace"]
