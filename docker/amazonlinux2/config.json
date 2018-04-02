@@ -1,6 +1,0 @@
-{
-  "credsStore": "ecr-login",
-  "auths": {
-    "012345678901.dkr.ecr.us-west-1.amazonaws.com": {}
-  }
-}

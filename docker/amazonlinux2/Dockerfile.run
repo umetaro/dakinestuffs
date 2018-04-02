@@ -1,5 +1,0 @@
-FROM 502718739766.dkr.ecr.us-east-1.amazonaws.com/amazonlinux2:agent
-
-USER jenkins
-
-ENTRYPOINT ["jenkins-slave", "-workDir", "/home/jenkins/workspace"]
