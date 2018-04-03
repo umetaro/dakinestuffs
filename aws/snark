@@ -3,6 +3,8 @@
 #
 # A second, less shitty attempt at a bash wrapper for the AWS CLI
 #
+# Some commands may require "jq" to be installed
+#
 
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 OUTPUT="${AWS_DEFAULT_OUTPUT:-text}"
@@ -10,6 +12,7 @@ OUTPUT="${AWS_DEFAULT_OUTPUT:-text}"
 function usage() {
 cat <<USAGE
 usage:
+  ${0} [ --cfparams ] [ cloudformation stack-name ]  ### requires jq
   ${0} [ -d | --debug ]
   ${0} [ -e | --emr ]
   ${0} [ -E ]
@@ -25,7 +28,7 @@ if [ ! $1 ]; then
   usage
 fi
 
-if ! ARGS=$( getopt --options deEg:i:n:p:v --longoptions debug,emr,instanceid:,ip:,name:,sg:,vpc -- "$@" ); then
+if ! ARGS=$( getopt --options deEg:i:n:p:v --longoptions cfparams:,debug,emr,instanceid:,ip:,name:,sg:,vpc -- "$@" ); then
   echo "option parsing error"
   exit 1
 fi
@@ -33,6 +36,16 @@ fi
 eval set -- "$ARGS"
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --cfparams )
+      OPTARG="$2"
+      aws cloudformation describe-stacks \
+        --stack-name ${OPTARG} \
+        --query 'Stacks[].Parameters[]' \
+        --output json \
+        --region us-east-1 \
+        | jq -r '.[]|"\(.ParameterKey)=\(.ParameterValue) "' \
+        | tr -d '\n'
+      ;;
     -d | --debug )
       set -x
       ;;
