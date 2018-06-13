@@ -3,32 +3,43 @@
 #
 # A second, less shitty attempt at a bash wrapper for the AWS CLI
 #
-# Some commands may require "jq" to be installed
-#
 
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 OUTPUT="${AWS_DEFAULT_OUTPUT:-text}"
 
 function usage() {
 cat <<USAGE
-usage:
-  ${0} [ --cfparams ] [ cloudformation stack-name ]  ### requires jq
-  ${0} [ -d | --debug ]
-  ${0} [ -e | --emr ]
-  ${0} [ -E ]
-  ${0} [ -g | --sg ] [ security group ID | security group name fragment ]
-  ${0} [ -i | --instanceid ] instance-id
-  ${0} [ -n | --name ] [ instance name fragment ]
-  ${0} [ -p | --ip ] [ ip-address ]
-  ${0} [ -v | --vpc ]
+Usage:
+  ${0} [-d]
+  ${0} [-e] <instance_id>
+  ${0} [-E]
+  ${0} [-g] <security_group_id/name_fragment>
+  ${0} [-i] <instance_id>
+  ${0} [-n] <instance_name/fragment>
+  ${0} [-p] <ip_address>
+  ${0} [-v] <instance_id>
+
+  [     --cfparams ] [ cloudformation stack-name ]  ### requires jq
+  [-d | --debug ] Debug
+  [-e | --emr   ] List EMR cluster info
+  [-E | --emless] List EMR cluster names and IDs only
+  [-g | --sg    ] Search security groups by ID or name fragment
+  [-i | --id    ] Search EC2 instances by ID
+  [-n | --name  ] Search EC2 instances by 'Name' tag
+  [-p | --ip    ] Search EC2 instances by public or private IP address
+  [-v | --volume] List volumes attached to an instance
+  [   | --vpc   ] List VPC information
+
+  [--listparams ] List all SSM Parameter Store entries
+
 USAGE
 }
 
-if [ ! $1 ]; then
+if [ ! "${1}" ]; then
   usage
 fi
 
-if ! ARGS=$( getopt --options deEg:i:n:p:v --longoptions cfparams:,debug,emr,instanceid:,ip:,name:,sg:,vpc -- "$@" ); then
+if ! ARGS=$( getopt --options deEg:i:n:p:v: --longoptions debug,emr,instanceid:,ip:,listparams,name:,paramsearch:,sg:,volume:,vpc -- "$@" ); then
   echo "option parsing error"
   exit 1
 fi
@@ -39,7 +50,7 @@ while [[ $# -gt 0 ]]; do
     --cfparams )
       OPTARG="$2"
       aws cloudformation describe-stacks \
-        --stack-name ${OPTARG} \
+        --stack-name "${OPTARG}" \
         --query 'Stacks[].Parameters[]' \
         --output json \
         --region us-east-1 \
@@ -49,8 +60,7 @@ while [[ $# -gt 0 ]]; do
     -d | --debug )
       set -x
       ;;
-  #  cfn)
-    -E )
+    -E | --emless )
       widths="%-30s %-20s\n"
       printf "${widths}" "NAME" "CLUSTER-ID"
       printf "${widths}" \
@@ -83,7 +93,7 @@ while [[ $# -gt 0 ]]; do
         --region "${REGION}" \
         --output "${OUTPUT}"
       shift
-      ;;  
+      ;;
     -n | --name )
       OPTARG="$2"
       widths="%-42s %-20s %-15s %-15s %-12s %-12s %-18s\n"
@@ -95,7 +105,7 @@ while [[ $# -gt 0 ]]; do
           --region "${REGION}" \
           --output "${OUTPUT}")
       shift
-      ;;  
+      ;;
     -p | --ip )
       OPTARG="$2"
       aws ec2 describe-addresses \
@@ -115,7 +125,7 @@ while [[ $# -gt 0 ]]; do
         --output "${OUTPUT}" &
       wait
       shift
-      ;;  
+      ;;
     -g | --sg )
       OPTARG="$2"
       if [[ ${OPTARG} =~ ^sg-[a-z0-9]+ ]]; then
@@ -135,13 +145,20 @@ while [[ $# -gt 0 ]]; do
       fi
       shift
       ;;
-  #  ssm)
-    -v | --vpc )
+    -v | --volume )
+      OPTARG="$2"
+      aws ec2 describe-volumes --filters Name=attachment.instance-id,Values="${OPTARG}" \
+        --query 'Volumes[*].{ID:VolumeId,SIZE:Size,INSTANCE:Attachments[0].InstanceId,DEVICE:Attachments[0].Device}'
+      ;;
+    --vpc )
       aws ec2 describe-vpcs \
         --query 'Vpcs[].[Tags[?Key==`Name`] | [0].Value,VpcId,CidrBlock]' \
         --region "${REGION}" \
         --output "${OUTPUT}" \
         | sort -Vk2 | column -t
+      ;;
+    --listparams )
+      aws ssm describe-parameters --query 'Parameters[].Name'
       ;;
 # can't get this to work for some damned reason
 #    -- )
