@@ -10,6 +10,7 @@ OUTPUT="${AWS_DEFAULT_OUTPUT:-text}"
 function usage() {
 cat <<USAGE
 Usage:
+  ${0} [-c] <cloudformation stack name>
   ${0} [-d]
   ${0} [-e] <instance_id>
   ${0} [-E]
@@ -20,7 +21,7 @@ Usage:
   ${0} [-s] <parameter store path>
   ${0} [-v] <instance_id>
 
-  [     --cfparams ] [ cloudformation stack-name ]
+  [-c | --cf    ] cloudformation stack-name
   [-d | --debug ] Debug
   [-e | --emr   ] List EMR cluster info
   [-E | --emless] List EMR cluster names and IDs only
@@ -39,7 +40,7 @@ if [ ! "${1}" ]; then
   usage
 fi
 
-if ! ARGS=$( getopt --options deEg:i:n:p:s:v: --longoptions debug,emr,instanceid:,ip:,name:,sg:,ssm:,volume:,vpc -- "$@" ); then
+if ! ARGS=$( getopt --options c:deEg:i:n:p:s:v: --longoptions cf:,debug,emr,instanceid:,ip:,name:,sg:,ssm:,volume:,vpc -- "$@" ); then
   echo "option parsing error"
   exit 1
 fi
@@ -47,7 +48,7 @@ fi
 eval set -- "$ARGS"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --cfparams )
+    -c | --cf )
       OPTARG="$2"
       aws cloudformation describe-stacks \
         --stack-name "${OPTARG}" \
