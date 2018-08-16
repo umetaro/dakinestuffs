@@ -20,7 +20,7 @@ Usage:
   ${0} [-s] <parameter store path>
   ${0} [-v] <instance_id>
 
-  [     --cfparams ] [ cloudformation stack-name ]  ### requires jq
+  [     --cfparams ] [ cloudformation stack-name ]
   [-d | --debug ] Debug
   [-e | --emr   ] List EMR cluster info
   [-E | --emless] List EMR cluster names and IDs only
@@ -51,11 +51,7 @@ while [[ $# -gt 0 ]]; do
       OPTARG="$2"
       aws cloudformation describe-stacks \
         --stack-name "${OPTARG}" \
-        --query 'Stacks[].Parameters[]' \
-        --output json \
-        --region us-east-1 \
-        | jq -r '.[]|"\(.ParameterKey)=\(.ParameterValue) "' \
-        | tr -d '\n'
+        --query 'Stacks[].Parameters[].[ParameterKey,ParameterValue,ResolvedValue]' | column -t
       ;;
     -d | --debug )
       set -x
@@ -147,7 +143,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -s | --ssm )
       OPTARG="$2"
-      aws ssm get-parameters-by-path --path "${OPTARG}" --recursive --with-decryption
+      aws ssm get-parameters-by-path --path "${OPTARG}" --recursive --with-decryption --query 'Parameters[].[Name,Value]' | column -t
       ;;
     -v | --volume )
       OPTARG="$2"
