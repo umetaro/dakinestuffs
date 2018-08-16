@@ -20,18 +20,20 @@ Usage:
   ${0} [-p] <ip_address>
   ${0} [-s] <parameter store path>
   ${0} [-v] <instance_id>
+  ${0} [-V] <vpc id>
 
-  [-c | --cf    ] cloudformation stack-name
-  [-d | --debug ] Debug
-  [-e | --emr   ] List EMR cluster info
-  [-E | --emless] List EMR cluster names and IDs only
-  [-g | --sg    ] Search security groups by ID or name fragment
-  [-i | --id    ] Search EC2 instances by ID
-  [-n | --name  ] Search EC2 instances by 'Name' tag
-  [-p | --ip    ] Search EC2 instances by public or private IP address
-  [-s | --ssm   ] List Parameter Store values of provided path recursively
-  [-v | --volume] List volumes attached to an instance
-  [   | --vpc   ] List VPC information
+  [-c | --cf      ] cloudformation stack-name
+  [-d | --debug   ] Debug
+  [-e | --emr     ] List EMR cluster info
+  [-E | --emless  ] List EMR cluster names and IDs only
+  [-g | --sg      ] Search security groups by ID or name fragment
+  [-i | --id      ] Search EC2 instances by ID
+  [-n | --name    ] Search EC2 instances by 'Name' tag
+  [-p | --ip      ] Search EC2 instances by public or private IP address
+  [-s | --ssm     ] List Parameter Store values of provided path recursively
+  [-v | --volume  ] List volumes attached to an instance
+  [   | --vpc     ] List VPC information
+  [-V | --subnets ] List VPC subnets
 
 USAGE
 }
@@ -40,7 +42,7 @@ if [ ! "${1}" ]; then
   usage
 fi
 
-if ! ARGS=$( getopt --options c:deEg:i:n:p:s:v: --longoptions cf:,debug,emr,instanceid:,ip:,name:,sg:,ssm:,volume:,vpc -- "$@" ); then
+if ! ARGS=$( getopt --options c:deEg:i:n:p:s:v:V: --longoptions cf:,debug,emr,instanceid:,ip:,name:,sg:,ssm:,subnets:,volume:,vpc -- "$@" ); then
   echo "option parsing error"
   exit 1
 fi
@@ -157,6 +159,10 @@ while [[ $# -gt 0 ]]; do
         --region "${REGION}" \
         --output "${OUTPUT}" \
         | sort -Vk2 | column -t
+      ;;
+    -V )
+      OPTARG="$2"
+      aws ec2 describe-subnets --filter Name=vpc-id,Values="${OPTARG}" --query 'Subnets[].{ID:SubnetId,AZ:AvailabilityZone,CIDR:CidrBlock,NAME:Tags[?Key==`Name`] | [0].Value}'
       ;;
 # can't get this to work for some damned reason
 #    -- )
