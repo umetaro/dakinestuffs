@@ -17,6 +17,7 @@ Usage:
   ${0} [-i] <instance_id>
   ${0} [-n] <instance_name/fragment>
   ${0} [-p] <ip_address>
+  ${0} [-s] <parameter store path>
   ${0} [-v] <instance_id>
 
   [     --cfparams ] [ cloudformation stack-name ]  ### requires jq
@@ -27,10 +28,9 @@ Usage:
   [-i | --id    ] Search EC2 instances by ID
   [-n | --name  ] Search EC2 instances by 'Name' tag
   [-p | --ip    ] Search EC2 instances by public or private IP address
+  [-s | --ssm   ] List Parameter Store values of provided path recursively
   [-v | --volume] List volumes attached to an instance
   [   | --vpc   ] List VPC information
-
-  [--listparams ] List all SSM Parameter Store entries
 
 USAGE
 }
@@ -39,7 +39,7 @@ if [ ! "${1}" ]; then
   usage
 fi
 
-if ! ARGS=$( getopt --options deEg:i:n:p:v: --longoptions debug,emr,instanceid:,ip:,listparams,name:,paramsearch:,sg:,volume:,vpc -- "$@" ); then
+if ! ARGS=$( getopt --options deEg:i:n:p:s:v: --longoptions debug,emr,instanceid:,ip:,name:,sg:,ssm:,volume:,vpc -- "$@" ); then
   echo "option parsing error"
   exit 1
 fi
@@ -85,6 +85,25 @@ while [[ $# -gt 0 ]]; do
         --query 'Clusters[*].[Name,Id]' \
         --output text)
       ;;
+    -g | --sg )
+      OPTARG="$2"
+      if [[ ${OPTARG} =~ ^sg-[a-z0-9]+ ]]; then
+        aws ec2 describe-security-groups \
+          --group-ids "${OPTARG}" \
+          --query 'SecurityGroups[].[GroupName,GroupId]' \
+          --region "${REGION}" \
+          --output "${OUTPUT}" \
+          | sort | column -t
+      else
+        aws ec2 describe-security-groups \
+          --filters Name=group-name,Values="*${OPTARG}*" \
+          --query 'SecurityGroups[].[GroupName,GroupId]' \
+          --region "${REGION}" \
+          --output "${OUTPUT}" \
+          | sort | column -t
+      fi
+      shift
+      ;;
     -i | --instanceid )
       OPTARG="$2"
       aws ec2 describe-instances \
@@ -126,24 +145,9 @@ while [[ $# -gt 0 ]]; do
       wait
       shift
       ;;
-    -g | --sg )
+    -s | --ssm )
       OPTARG="$2"
-      if [[ ${OPTARG} =~ ^sg-[a-z0-9]+ ]]; then
-        aws ec2 describe-security-groups \
-          --group-ids "${OPTARG}" \
-          --query 'SecurityGroups[].[GroupName,GroupId]' \
-          --region "${REGION}" \
-          --output "${OUTPUT}" \
-          | sort | column -t
-      else
-        aws ec2 describe-security-groups \
-          --filters Name=group-name,Values="*${OPTARG}*" \
-          --query 'SecurityGroups[].[GroupName,GroupId]' \
-          --region "${REGION}" \
-          --output "${OUTPUT}" \
-          | sort | column -t
-      fi
-      shift
+      aws ssm get-parameters-by-path --path "${OPTARG}" --recursive --with-decryption
       ;;
     -v | --volume )
       OPTARG="$2"
@@ -156,9 +160,6 @@ while [[ $# -gt 0 ]]; do
         --region "${REGION}" \
         --output "${OUTPUT}" \
         | sort -Vk2 | column -t
-      ;;
-    --listparams )
-      aws ssm describe-parameters --query 'Parameters[].Name'
       ;;
 # can't get this to work for some damned reason
 #    -- )
